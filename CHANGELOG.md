@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- In-game reset (IGR): holding Down during a retail soft reset now boots the configured launcher instead of resuming the game. Debounced key check; falls back to /_picoboot.nds when no launcherPath is configured; lets normal DLDI stub patching run for the launcher like any other homebrew (do not skip it - the launcher's own driver is a patchable stub, not a working driver). `dldi_init()`'s no-valid-driver fallback (taken on this path, since nothing upstream of IGR populates `gLoaderHeader.dldiDriver`) now builds a complete, valid, self-contained DLDI driver instead of two raw function pointers, so DLDI patching actually has something valid to hand to booted homebrew - previously the fallback driver had no valid `dldiMagic`, so `PatchTo()` silently skipped patching and homebrew kept its own pristine, never-patched stub (no SD access at all after IGR). Note: like all Pico Loader soft-reset handling, this only fires for games whose binary calls the standard SDK OS_ResetSystem - see main.cpp for a known limitation with games that have custom reset handling (e.g. Mario Kart DS).
 - Support for banner save files
 
 ## [v1.7.1] - 28 Jun 2026

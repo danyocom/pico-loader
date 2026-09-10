@@ -324,7 +324,6 @@ static void handleBootCommand()
         REG_SCFG_CLK = 0x87;
         REG_SCFG_RST = 1;
     }
-
     bootArm9();
 }
 
