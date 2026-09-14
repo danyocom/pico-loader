@@ -34,6 +34,12 @@ public:
     {
         return (void**)GetAddressAtTarget(&patch_osresetsystem_cheats_address);
     }
+
+    /// @brief Returns the patch heap space this part needs, so callers can check it fits.
+    static u32 GetSize()
+    {
+        return SECTION_SIZE(patch_osresetsystem_boot);
+    }
 };
 
 class OSResetSystemPatchCode : public PatchCode
@@ -42,6 +48,7 @@ public:
     OSResetSystemPatchCode(PatchHeap& patchHeap, const loader_info_t* loaderInfo,
         const IReadSectorsPatchCode* readSectorsPatchCode, const OSResetSystemPart2PatchCode* part2PatchCode)
         : PatchCode(SECTION_START(patch_osresetsystem), SECTION_SIZE(patch_osresetsystem), patchHeap)
+        , _part2PatchCode(part2PatchCode)
     {
         patch_osresetsystem_loader_info_address = loaderInfo;
         patch_osresetsystem_readSdSectors_address = (u32)readSectorsPatchCode->GetReadSectorsFunction();
@@ -52,4 +59,20 @@ public:
     {
         return GetAddressAtTarget((void*)patch_osresetsystem_entry);
     }
+
+    /// @brief Returns the second part of the reboot, which holds the cheats pointer.
+    const OSResetSystemPart2PatchCode* GetPart2PatchCode() const
+    {
+        return _part2PatchCode;
+    }
+
+    /// @brief Returns the patch heap space this part needs, so callers can check it fits.
+    static u32 GetSize()
+    {
+        return SECTION_SIZE(patch_osresetsystem);
+    }
+
+private:
+    // Kept so a caller that did not create the reboot can still reach its second part.
+    const OSResetSystemPart2PatchCode* _part2PatchCode;
 };
