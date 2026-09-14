@@ -24,6 +24,14 @@ public:
     /// @return A pointer to the first location where the pattern was found, or \c nullptr if the pattern was not found.
     u32* FindPattern32(const u32* pattern, u32 byteLength) const;
 
+    /// @brief Tries to find the given \p pattern of the given \p byteLength in the ntr region,
+    ///        starting at \p searchStart.
+    /// @param pattern The pattern to find.
+    /// @param byteLength The length of the pattern.
+    /// @param searchStart The address in the ntr region to start searching from.
+    /// @return A pointer to the first location where the pattern was found, or \c nullptr if the pattern was not found.
+    u32* FindPattern32(const u32* pattern, u32 byteLength, const u32* searchStart) const;
+
     /// @brief Tries to find the given \p pattern of the given \p byteLength in the twl region.
     /// @param pattern The pattern to find.
     /// @param byteLength The length of the pattern.

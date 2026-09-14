@@ -19,6 +19,14 @@ public:
     /// @return A pointer to the allocated block if successful, or nullptr otherwise.
     void* Alloc(u32 size);
 
+    /// @brief Checks whether blocks of the given sizes can all be allocated when
+    ///        \see Alloc is called for them in the given order. Unlike \see Alloc
+    ///        this never fails fatally.
+    /// @param sizes The sizes to check, in allocation order.
+    /// @param count The number of sizes.
+    /// @return True if all blocks can be allocated, or false otherwise.
+    bool CanAllocAll(const u32* sizes, u32 count) const;
+
 private:
     struct PatchHeapBlock
     {

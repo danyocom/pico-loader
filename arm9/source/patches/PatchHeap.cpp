@@ -46,6 +46,45 @@ void PatchHeap::AddFreeSpace(void* block, u32 size)
     _freeBlocks = heapBlock;
 }
 
+bool PatchHeap::CanAllocAll(const u32* sizes, u32 count) const
+{
+    // Replays the best fit search of Alloc on a copy of the free block sizes.
+    // There can never be more free blocks than entries in _blocks, so the copy always fits.
+    std::array<u32, std::tuple_size_v<decltype(_blocks)>> freeSizes;
+    u32 freeBlockCount = 0;
+    for (auto cur = _freeBlocks; cur; cur = cur->next)
+    {
+        freeSizes[freeBlockCount++] = cur->size;
+    }
+
+    for (u32 i = 0; i < count; i++)
+    {
+        u32 size = sizes[i];
+        // Pick the smallest free block that is large enough, stopping early on an exact fit.
+        int bestBlock = -1;
+        for (u32 j = 0; j < freeBlockCount; j++)
+        {
+            if (freeSizes[j] >= size && (bestBlock < 0 || freeSizes[j] < freeSizes[bestBlock]))
+            {
+                bestBlock = j;
+                if (freeSizes[j] == size)
+                {
+                    break;
+                }
+            }
+        }
+
+        if (bestBlock < 0)
+        {
+            return false;
+        }
+
+        // Alloc takes the space from that block, so later sizes see only what is left of it.
+        freeSizes[bestBlock] -= size;
+    }
+    return true;
+}
+
 void* PatchHeap::Alloc(u32 size)
 {
     PatchHeapBlock* prev = nullptr;
