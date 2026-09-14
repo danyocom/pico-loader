@@ -12,6 +12,7 @@
 #include "patches/arm9/sdk5/CardiReadRomWithCpuPatch.h"
 #include "patches/arm9/CardiReadRomIdCorePatch.h"
 #include "patches/arm9/OSResetSystemPatch.h"
+#include "patches/arm9/InGameResetPatch.h"
 #include "patches/arm9/PokemonDownloaderArm9Patch.h"
 #include "patches/arm9/DSProtectArm9Patch.h"
 #include "patches/arm9/LastWindowCrcPatch.h"
@@ -221,6 +222,19 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
         osResetSystemPatch = new OSResetSystemPatch(loaderInfo, runInDSiMode);
         patchCollection.AddPatch(osResetSystemPatch);
         AddGamePatches(patchCollection, romHeader->gameCode, apListEntry);
+
+        // Added last, so that it only uses patch space left over by the patches a game needs.
+        // A hybrid rom runs on both a DS and a DSi: it supports DSi mode and does not have
+        // the unit code bit that marks a rom as unable to run in DS mode.
+        bool isHybridRom = romHeader->SupportsDsiMode() &&
+            !(romHeader->unitCode & NDS_HEADER_UNIT_CODE_NOT_SUPPORTS_DS_MODE);
+        // DSiWare does not read from a cartridge, so it gets no rom read patches.
+        bool hasRomReadPatches = !(sdkVersion.IsTwlSdk() && twlRomHeader->IsDsiWare());
+        // The reboot reuses the sd read code that the rom read patches create. It does not
+        // exist for DSiWare, or on platforms that read roms directly instead of from the sd card.
+        patchCollection.AddPatch(new InGameResetPatch(osResetSystemPatch, loaderInfo,
+            sdkVersion.IsTwlSdk() && isHybridRom && runInDSiMode,
+            hasRomReadPatches && !loaderPlatform->HasRomReads()));
 
         if (moduleParams && compressedEnd != 0)
         {

@@ -4,6 +4,7 @@
 
 ### Added
 - Support for banner save files
+- In-game reset: hold L+R+Down+B for two seconds in a retail game to return to the launcher
 
 ## [v1.7.1] - 28 Jun 2026
 

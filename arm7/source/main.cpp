@@ -17,6 +17,7 @@
 #include "fat/dldi.h"
 #include "loader/NdsLoader.h"
 #include "sharedMemory.h"
+#include "inGameReset.h"
 #include "ndsHeader.h"
 #include "globalHeap.h"
 #include "mmc/tmio.h"
@@ -25,6 +26,10 @@
 #define HANDSHAKE_PART1     0xB
 #define HANDSHAKE_PART2     0xC
 #define HANDSHAKE_PART3     0xD
+
+/// @brief Launcher booted by an in-game reset when the reloaded header has no launcher path.
+///        This is the file the DSpico bootloader boots.
+#define DEFAULT_LAUNCHER_PATH   "/_picoboot.nds"
 
 ILogger* gLogger;
 FATFS gFatFs;
@@ -222,6 +227,24 @@ extern "C" void loaderMain()
     {
         LOG_DEBUG("Multiboot\n");
         sLoader.Load(BootMode::Multiboot);
+    }
+    // The reboot sets the arm7 entry of the header copy to Pico Loader's own entry point, so this
+    // match means Pico Loader was started by a reset from a running game rather than a fresh boot.
+    else if (((nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.romHeader)->arm7EntryAddress == (u32)gLoaderHeader.entryPoint &&
+        TWL_SHARED_MEMORY->ntrSharedMem.resetParam == IN_GAME_RESET_PARAM_RETURN_TO_LAUNCHER)
+    {
+        // The in-game reset patch enters the same reboot as the OS_ResetSystem patch and
+        // marks it in the reset parameter. Pico Loader was reloaded from the card, so
+        // launcherPath is only set when the reloaded binary itself carries one.
+        // Cleared so a later reset from the launcher is not mistaken for another in-game reset.
+        TWL_SHARED_MEMORY->ntrSharedMem.resetParam = 0;
+        const char* launcherPath = gLoaderHeader.v2.launcherPath[0] != 0
+            ? gLoaderHeader.v2.launcherPath
+            : DEFAULT_LAUNCHER_PATH;
+        LOG_DEBUG("In-game reset, returning to launcher %s\n", launcherPath);
+        sLoader.SetRomPath(launcherPath);
+        sLoader.SetLauncherPath(launcherPath);
+        sLoader.Load(BootMode::Normal);
     }
     else if (((nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.romHeader)->arm7EntryAddress == (u32)gLoaderHeader.entryPoint)
     {
