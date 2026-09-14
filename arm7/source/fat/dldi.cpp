@@ -353,6 +353,15 @@ static void loadDriverCache()
     sCachedDriver = image;
 }
 
+void dldi_deleteDriverCache()
+{
+    FRESULT result = f_unlink(DLDI_CACHE_PATH);
+    if (result != FR_OK && result != FR_NO_FILE)
+    {
+        LOG_ERROR("Failed to delete dldi cache file: %d\n", result);
+    }
+}
+
 void dldi_updateDriverCache()
 {
     if (sIsHandedDownDriver)

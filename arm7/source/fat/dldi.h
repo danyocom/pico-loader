@@ -11,6 +11,10 @@ bool dldi_init();
 /// @note Requires the card to be mounted.
 void dldi_updateDriverCache();
 
+/// @brief Deletes the copy of the card's DLDI driver saved by dldi_updateDriverCache().
+/// @note Requires the card to be mounted.
+void dldi_deleteDriverCache();
+
 /// @brief Returns whether a DLDI driver is available to patch into the program being booted,
 ///        either handed down through gLoaderHeader.dldiDriver or loaded from the card.
 bool dldi_hasDriver();

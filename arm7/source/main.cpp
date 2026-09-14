@@ -8,6 +8,8 @@
 #include <libtwl/sound/sound.h>
 #include <libtwl/sound/soundChannel.h>
 #include <libtwl/sound/soundCapture.h>
+#include <libtwl/sio/sio.h>
+#include <libtwl/gfx/gfxStatus.h>
 #include "core/Environment.h"
 #include "logger/NitroEmulatorOutputStream.h"
 #include "logger/PicoAgbAdapterOutputStream.h"
@@ -25,6 +27,17 @@
 #define HANDSHAKE_PART1     0xB
 #define HANDSHAKE_PART2     0xC
 #define HANDSHAKE_PART3     0xD
+
+/// @brief Launcher booted by an in-game reset when no launcher path was set.
+///        This is the file the DSpico bootloader boots.
+#define DEFAULT_LAUNCHER_PATH   "/_picoboot.nds"
+
+/// @brief Held during a soft reset to boot the launcher instead of restarting the game.
+#define RESET_KEY_RETURN_TO_LAUNCHER    KEYINPUT_KEY_DPAD_DOWN
+
+/// @brief Held during a soft reset to delete the saved DLDI driver and then boot the
+///        launcher, as RESET_KEY_RETURN_TO_LAUNCHER does.
+#define RESET_KEY_DELETE_DLDI_CACHE     KEYINPUT_KEY_DPAD_UP
 
 ILogger* gLogger;
 FATFS gFatFs;
@@ -148,6 +161,22 @@ static void initIpc()
     while (ipc_getArm9SyncBits() == HANDSHAKE_PART2);
 }
 
+/// @brief Returns the keys that are held in every one of several consecutive frames,
+///        so that momentary contact bounce is not mistaken for a held key.
+static u16 readHeldKeys()
+{
+    constexpr int SAMPLE_FRAMES = 4;
+
+    u16 heldKeys = ~0;
+    for (int i = 0; i < SAMPLE_FRAMES; i++)
+    {
+        while (gfx_getVCount() != 191);
+        while (gfx_getVCount() == 191);
+        heldKeys &= ~REG_KEYINPUT; // KEYINPUT is active-low
+    }
+    return heldKeys;
+}
+
 extern "C" void loaderMain()
 {
     __libc_init_array();
@@ -177,6 +206,15 @@ extern "C" void loaderMain()
     memset(&gFatFs, 0, sizeof(gFatFs));
     bool multiboot = (gLoaderHeader.bootDrive & PLOAD_BOOT_DRIVE_MULTIBOOT_FLAG) != 0;
     gLoaderHeader.bootDrive &= ~PLOAD_BOOT_DRIVE_MULTIBOOT_FLAG;
+
+    // The OS_ResetSystem patch reloads Pico Loader and points the rom header's ARM7
+    // entry at Pico Loader itself, which no normal boot does.
+    bool isSdkResetSystem = !multiboot &&
+        ((nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.romHeader)->arm7EntryAddress == (u32)gLoaderHeader.entryPoint;
+    u16 resetKeys = isSdkResetSystem ? readHeldKeys() : 0;
+    bool deleteDriverCache = (resetKeys & RESET_KEY_DELETE_DLDI_CACHE) != 0;
+    bool returnToLauncher = (resetKeys & (RESET_KEY_RETURN_TO_LAUNCHER | RESET_KEY_DELETE_DLDI_CACHE)) != 0;
+
     switch (gLoaderHeader.bootDrive)
     {
         case PLOAD_BOOT_DRIVE_DLDI:
@@ -187,6 +225,11 @@ extern "C" void loaderMain()
                 // not on where the rom is loaded from, so multiboot needs no special case.
                 if (mountDldi())
                 {
+                    if (deleteDriverCache)
+                    {
+                        LOG_DEBUG("Deleting cached dldi driver\n");
+                        dldi_deleteDriverCache();
+                    }
                     dldi_updateDriverCache();
                 }
             }
@@ -223,7 +266,19 @@ extern "C" void loaderMain()
         LOG_DEBUG("Multiboot\n");
         sLoader.Load(BootMode::Multiboot);
     }
-    else if (((nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.romHeader)->arm7EntryAddress == (u32)gLoaderHeader.entryPoint)
+    else if (returnToLauncher)
+    {
+        // Pico Loader was reloaded from the card, so launcherPath is only set when
+        // the reloaded binary itself carries one.
+        const char* launcherPath = gLoaderHeader.v2.launcherPath[0] != 0
+            ? gLoaderHeader.v2.launcherPath
+            : DEFAULT_LAUNCHER_PATH;
+        LOG_DEBUG("Returning to launcher %s\n", launcherPath);
+        sLoader.SetRomPath(launcherPath);
+        sLoader.SetLauncherPath(launcherPath);
+        sLoader.Load(BootMode::Normal);
+    }
+    else if (isSdkResetSystem)
     {
         LOG_DEBUG("Retail soft reset detected\n");
         u32 originalArm7EntryAddress = ((nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.cardRomHeader)->arm7EntryAddress;
