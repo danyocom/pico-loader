@@ -244,6 +244,9 @@ extern "C" void loaderMain()
         LOG_DEBUG("In-game reset, returning to launcher %s\n", launcherPath);
         sLoader.SetRomPath(launcherPath);
         sLoader.SetLauncherPath(launcherPath);
+        // The launcher is homebrew, so it receives its own path as argv[0] followed by this
+        // marker, which tells it apart from a boot out of power on.
+        sLoader.SetArguments(IN_GAME_RESET_LAUNCHER_ARGUMENT, sizeof(IN_GAME_RESET_LAUNCHER_ARGUMENT));
         sLoader.Load(BootMode::Normal);
     }
     else if (((nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.romHeader)->arm7EntryAddress == (u32)gLoaderHeader.entryPoint)

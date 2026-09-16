@@ -1,13 +1,13 @@
 .cpu arm946e-s
 .syntax unified
 
-// L + R + Down + B, as the bits that read 0 in REG_KEYINPUT while held.
-// Bit 9 = L, bit 8 = R, bit 7 = Down, bit 1 = B, giving 0x382.
-.equ IN_GAME_RESET_KEY_MASK, (1 << 9) | (1 << 8) | (1 << 7) | (1 << 1)
+// L + R + Down + B + A, as the bits that read 0 in REG_KEYINPUT while held.
+// Bit 9 = L, bit 8 = R, bit 7 = Down, bit 1 = B, bit 0 = A, giving 0x383.
+.equ IN_GAME_RESET_KEY_MASK, (1 << 9) | (1 << 8) | (1 << 7) | (1 << 1) | (1 << 0)
 
 // Number of consecutive vblanks the keys must be held before the reset is performed.
-// The DS draws 60 frames per second, so 120 is two seconds.
-.equ IN_GAME_RESET_HOLD_FRAMES, 120
+// The DS draws 60 frames per second, so 60 is one second.
+.equ IN_GAME_RESET_HOLD_FRAMES, 60
 
 // Lock id used while holding the slot 1 lock. The SDK hands out ids starting at 0x40 and
 // the game never runs again once the lock is taken, so any nonzero id is sufficient.
