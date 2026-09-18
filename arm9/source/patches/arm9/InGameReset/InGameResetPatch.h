@@ -1,9 +1,11 @@
 #pragma once
-#include "../Patch.h"
+#include "patches/Patch.h"
 #include "LoaderInfo.h"
-#include "IrqDispatcherVariants.h"
+#include "IrqDispatcher.h"
 
 class OSResetSystemPatch;
+class InGameResetDispatchPatchCode;
+class InGameResetKeyCheckPatchCode;
 
 /// @brief Arm9 patch that returns to the launcher when a key combination is held during
 ///        gameplay, regardless of whether the game implements a soft reset of its own.
@@ -11,8 +13,8 @@ class OSResetSystemPatch;
 ///        The keys are sampled in the game's arm9 interrupt dispatcher, and the reset enters
 ///        the same reboot into Pico Loader that \see OSResetSystemPatch uses. Nearly every
 ///        retail title uses the stock SDK dispatcher, but a few developers replaced it, so
-///        the dispatcher is looked up in a table of known versions
-///        (\see irq_dispatcher_variant_t). That reboot is installed here when the
+///        the dispatcher is searched for as each known version in turn
+///        (\see IrqDispatcherVariant). That reboot is installed here when the
 ///        game has no OS_ResetSystem, which is common, as the linker drops it from games
 ///        that never call it. When the dispatcher cannot be found the patch does nothing
 ///        and the game boots as it would without it.
@@ -39,6 +41,13 @@ private:
     // not bool.
     u16 _twlArm7Sync;
     u16 _hasSdReadPatchCode;
-    const irq_dispatcher_variant_t* _irqDispatcherVariant = nullptr;
+    IrqDispatcherVariant _irqDispatcherVariant = IrqDispatcherVariant::None;
     IrqDispatcherMatch _irqDispatcherMatch = { };
+
+    /// @brief Returns the patch heap space the matched dispatcher's dispatch part needs.
+    u32 GetDispatchPatchCodeSize() const;
+
+    /// @brief Creates the matched dispatcher's dispatch part.
+    const InGameResetDispatchPatchCode* CreateDispatchPatchCode(PatchContext& patchContext,
+        const InGameResetKeyCheckPatchCode* keyCheckPatchCode) const;
 };

@@ -1,5 +1,5 @@
 #pragma once
-#include "../PatchCode.h"
+#include "patches/PatchCode.h"
 #include "sections.h"
 
 DEFINE_SECTION_SYMBOLS(patch_ingamereset_keycheck);
@@ -80,8 +80,9 @@ public:
 };
 
 /// @brief Base class for the part of the in-game reset that replaces the dispatch of a game's
-///        arm9 interrupt dispatcher. There is one of these per dispatcher version, and only
-///        the one matching the game is placed in the patch heap.
+///        arm9 interrupt dispatcher. There is one subclass per dispatcher version, each in its
+///        own IrqDispatcher header, and only the one matching the game is placed in the patch
+///        heap.
 class InGameResetDispatchPatchCode : public PatchCode
 {
 public:
@@ -96,74 +97,4 @@ public:
 
 private:
     const void* const _entry;
-};
-
-/// @brief Dispatch part for the stock SDK interrupt dispatcher.
-class InGameResetSdkDispatchPatchCode : public InGameResetDispatchPatchCode
-{
-public:
-    InGameResetSdkDispatchPatchCode(PatchHeap& patchHeap, u32 irqTable, u32 irqReturn,
-        const InGameResetKeyCheckPatchCode* keyCheckPatchCode)
-        : InGameResetDispatchPatchCode(SECTION_START(patch_ingamereset_dispatch_sdk),
-            SECTION_SIZE(patch_ingamereset_dispatch_sdk), patchHeap,
-            (void*)patch_ingamereset_sdkDispatch)
-    {
-        patch_ingamereset_sdkIrqTable = irqTable;
-        patch_ingamereset_sdkIrqReturn = irqReturn;
-        patch_ingamereset_sdkKeyCheck = (u32)keyCheckPatchCode->GetKeyCheckFunction();
-    }
-
-    /// @brief Returns the patch heap space this part needs, so callers can check it fits.
-    static u32 GetSize()
-    {
-        return SECTION_SIZE(patch_ingamereset_dispatch_sdk);
-    }
-};
-
-/// @brief Dispatch part for a dispatcher that picks the interrupt with a single clz and calls
-///        the handler with blx. It needs no interrupt table address, because the dispatcher
-///        already holds one in a register at the point where this takes over.
-class InGameResetBlxDispatchPatchCode : public InGameResetDispatchPatchCode
-{
-public:
-    InGameResetBlxDispatchPatchCode(PatchHeap& patchHeap, u32 irqReturn,
-        const InGameResetKeyCheckPatchCode* keyCheckPatchCode)
-        : InGameResetDispatchPatchCode(SECTION_START(patch_ingamereset_dispatch_blx),
-            SECTION_SIZE(patch_ingamereset_dispatch_blx), patchHeap,
-            (void*)patch_ingamereset_blxDispatch)
-    {
-        patch_ingamereset_blxIrqReturn = irqReturn;
-        patch_ingamereset_blxKeyCheck = (u32)keyCheckPatchCode->GetKeyCheckFunction();
-    }
-
-    /// @brief Returns the patch heap space this part needs, so callers can check it fits.
-    static u32 GetSize()
-    {
-        return SECTION_SIZE(patch_ingamereset_dispatch_blx);
-    }
-};
-
-/// @brief Dispatch part for the stock dispatcher wrapped so that interrupts can nest. It hooks
-///        before the game switches to system mode with irqs enabled, so normal dispatch carries
-///        on in the game's own code rather than at the handler.
-class InGameResetNestedDispatchPatchCode : public InGameResetDispatchPatchCode
-{
-public:
-    InGameResetNestedDispatchPatchCode(PatchHeap& patchHeap, u32 irqTable, u32 continueAddress,
-        const InGameResetKeyCheckPatchCode* keyCheckPatchCode)
-        : InGameResetDispatchPatchCode(SECTION_START(patch_ingamereset_dispatch_nested),
-            SECTION_SIZE(patch_ingamereset_dispatch_nested), patchHeap,
-            (void*)patch_ingamereset_nestedDispatch)
-    {
-        patch_ingamereset_nestedIrqTable = irqTable;
-        patch_ingamereset_nestedContinue = continueAddress;
-        patch_ingamereset_nestedResumeAddress = (u32)GetAddressAtTarget((void*)patch_ingamereset_nestedResume);
-        patch_ingamereset_nestedKeyCheck = (u32)keyCheckPatchCode->GetKeyCheckFunction();
-    }
-
-    /// @brief Returns the patch heap space this part needs, so callers can check it fits.
-    static u32 GetSize()
-    {
-        return SECTION_SIZE(patch_ingamereset_dispatch_nested);
-    }
 };
