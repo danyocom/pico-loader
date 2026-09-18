@@ -143,6 +143,82 @@ patch_ingamereset_sdkKeyCheck:
 
 .pool
 
+.section "patch_ingamereset_dispatch_blx", "ax"
+
+// Dispatch part for a dispatcher that picks the interrupt with a single clz and calls the
+// handler with blx, found in Golden Sun: Dark Dawn. Its whole body is conditional on there
+// being something to service:
+//
+//     mov   ip, #0x04000000
+//     ldr   r2, [ip, #0x208]!        @ IME
+//     ldrd  r0, r1, [ip, #8]!        @ IE, IF
+//     cmp   r2, #0
+//     andsne r1, r0, r1              @ pending = IE & IF
+//     pushne {lr}
+//     ldrne lr, =irqTableEnd
+//     rsbne r0, r1, #0
+//     andne r1, r0, r1               @ lowest pending bit
+//     clzne r0, r1
+//     ldrne lr, [lr, -r0, lsl #2]    @ handler = table[31 - clz]
+//     strne r1, [ip, #4]             @ acknowledge
+//     blx   lr
+//
+// It replaces the last two conditional instructions, so it is entered with the flags of
+// "andsne r1, r0, r1" still set, r0 = clz, r1 = the lowest pending bit, ip = 0x04000210,
+// and lr = the address just past the end of the handler table. There is no need for a copy
+// of the table address, because lr already holds it.
+//
+// Unlike the stock dispatcher this one has not acknowledged the interrupt yet, so the
+// acknowledging write is part of the replaced code and is done here.
+
+.thumb
+.global patch_ingamereset_blxDispatch
+.type patch_ingamereset_blxDispatch, %function
+patch_ingamereset_blxDispatch:
+    // The jump into here does not change the flags, so they still say whether anything is
+    // pending. Nothing is pending when IME is off, or when IE & IF is zero.
+    bne blxPending
+    // The replaced code would fall through to "blx lr" with lr still holding the return
+    // into the BIOS, which never comes back: the matching "pushne {lr}" did not run on
+    // this path, so returning here would unbalance the dispatcher's stack. bx lr is
+    // therefore the same thing without the pointless return address.
+    bx lr
+
+blxPending:
+    // handler = [lr - clz * 4]. Thumb can only subtract low registers, so lr is copied.
+    mov r3, lr
+    lsls r2, r0, #2
+    subs r2, r3, r2
+    ldr r2, [r2] // r2 = handler, which is where normal dispatch carries on
+
+    // Acknowledge the interrupt, as the replaced "strne r1, [ip, #4]" did. REG_IF is at
+    // 0x04000214 and ip holds 0x04000210. Thumb can only store through a low register.
+    mov r3, ip
+    str r1, [r3, #4]
+
+    ldr r3, patch_ingamereset_blxIrqReturn
+    mov lr, r3
+    cmp r1, #1 // bit 0 is vblank, and only vblank advances the count
+    bne blxContinue
+    ldr r3, patch_ingamereset_blxKeyCheck
+    bx r3
+
+blxContinue:
+    movs r0, r2
+    bx r0
+
+.balign 4
+
+.global patch_ingamereset_blxIrqReturn
+patch_ingamereset_blxIrqReturn:
+    .word 0
+
+.global patch_ingamereset_blxKeyCheck
+patch_ingamereset_blxKeyCheck:
+    .word 0
+
+.pool
+
 .section "patch_ingamereset_reset", "ax"
 
 // Entered from the key check with r2 = the address that carries on with normal dispatch.

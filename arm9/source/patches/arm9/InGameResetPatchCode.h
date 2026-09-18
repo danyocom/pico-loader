@@ -4,16 +4,20 @@
 
 DEFINE_SECTION_SYMBOLS(patch_ingamereset_keycheck);
 DEFINE_SECTION_SYMBOLS(patch_ingamereset_dispatch_sdk);
+DEFINE_SECTION_SYMBOLS(patch_ingamereset_dispatch_blx);
 DEFINE_SECTION_SYMBOLS(patch_ingamereset_reset);
 
 extern "C" void patch_ingamereset_keyCheck(void);
 extern "C" void patch_ingamereset_sdkDispatch(void);
+extern "C" void patch_ingamereset_blxDispatch(void);
 extern "C" void patch_ingamereset_resetEntry(void);
 
 extern u32 patch_ingamereset_resetAddress;
 extern u32 patch_ingamereset_sdkIrqTable;
 extern u32 patch_ingamereset_sdkIrqReturn;
 extern u32 patch_ingamereset_sdkKeyCheck;
+extern u32 patch_ingamereset_blxIrqReturn;
+extern u32 patch_ingamereset_blxKeyCheck;
 extern u32 patch_ingamereset_slot1LockAddress;
 extern u32 patch_ingamereset_resetParamAddress;
 extern u32 patch_ingamereset_resetParam;
@@ -106,5 +110,28 @@ public:
     static u32 GetSize()
     {
         return SECTION_SIZE(patch_ingamereset_dispatch_sdk);
+    }
+};
+
+/// @brief Dispatch part for a dispatcher that picks the interrupt with a single clz and calls
+///        the handler with blx. It needs no interrupt table address, because the dispatcher
+///        already holds one in a register at the point where this takes over.
+class InGameResetBlxDispatchPatchCode : public InGameResetDispatchPatchCode
+{
+public:
+    InGameResetBlxDispatchPatchCode(PatchHeap& patchHeap, u32 irqReturn,
+        const InGameResetKeyCheckPatchCode* keyCheckPatchCode)
+        : InGameResetDispatchPatchCode(SECTION_START(patch_ingamereset_dispatch_blx),
+            SECTION_SIZE(patch_ingamereset_dispatch_blx), patchHeap,
+            (void*)patch_ingamereset_blxDispatch)
+    {
+        patch_ingamereset_blxIrqReturn = irqReturn;
+        patch_ingamereset_blxKeyCheck = (u32)keyCheckPatchCode->GetKeyCheckFunction();
+    }
+
+    /// @brief Returns the patch heap space this part needs, so callers can check it fits.
+    static u32 GetSize()
+    {
+        return SECTION_SIZE(patch_ingamereset_dispatch_blx);
     }
 };
