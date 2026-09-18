@@ -210,9 +210,111 @@ static const InGameResetDispatchPatchCode* createBlxPatchCode(PatchContext& patc
     );
 }
 
+// The stock dispatcher wrapped so that interrupts can nest, found in Black Sigil: Blade of
+// the Exiled. It is the stock dispatcher up to the table lookup, which is why the pattern has
+// to reach past it into the mode switch: without those instructions it would also match the
+// stock dispatcher.
+static const u32 sNestedPattern[] =
+{
+    0xE16F0F11u, // clz r0, r1
+    0xE1D11033u, // bics r1, r1, r3, lsr r0
+    0x1AFFFFFCu, // bne clz
+    0xE1A01033u, // lsr r1, r3, r0
+    0xE58C1004u, // str r1, [ip, #4]              @ acknowledge
+    0xE270001Fu, // rsbs r0, r0, #31
+    0xE59F1000u, // ldr r1, [pc, #irqTable]       @ offset differs between builds
+    0xE7910100u, // ldr r0, [r1, r0, lsl #2]
+    0xE10F3000u, // mrs r3, CPSR                  @ switch to system mode with irqs on
+    0xE3C330DFu, // bic r3, r3, #0xDF
+    0xE383301Fu, // orr r3, r3, #0x1F
+    0xE129F003u, // msr CPSR_fc, r3
+    0xE92D4000u, // stmfd sp!, {lr}
+    0xE59FE000u, // ldr lr, [pc, #irqReturn]      @ offset differs between builds
+    0xE12FFF10u  // bx r0
+};
+
+// The two pc relative loads, whose literal pool offsets are the only parts of this dispatcher
+// that differ between builds.
+#define NESTED_IRQ_TABLE_LOAD_WORD      6
+#define NESTED_IRQ_TABLE_LOAD_OPCODE    0xE59F1000u // ldr r1, [pc, #imm12], adding the offset
+#define NESTED_IRQ_RETURN_LOAD_WORD     13
+#define NESTED_IRQ_RETURN_LOAD_OPCODE   0xE59FE000u // ldr lr, [pc, #imm12], adding the offset
+#define NESTED_PC_RELATIVE_LOAD_MASK    0xFFFFF000u
+
+// The two loads the jump replaces, the mode switch the dispatch part carries on at, and the
+// instruction the handler returns to, which is the whole pattern away.
+#define NESTED_HOOK_WORD                6
+#define NESTED_CONTINUE_OFFSET          0x20
+#define NESTED_IRQ_RETURN_OFFSET        0x3C
+
+// Resolves a pc relative load into the word it reads. Reading pc gives the address of the
+// instruction plus 8, so the literal is two words past the load plus its offset.
+static const u32* resolvePcRelativeLoad(const u32* load, u32 opcode, const u32* dataEnd)
+{
+    if ((*load & NESTED_PC_RELATIVE_LOAD_MASK) != opcode)
+    {
+        return nullptr;
+    }
+    const u32* literal = load + 2 + ((*load & ~NESTED_PC_RELATIVE_LOAD_MASK) >> 2);
+    return literal < dataEnd ? literal : nullptr;
+}
+
+static bool validateNested(PatchContext& patchContext, u32* match, IrqDispatcherMatch& result)
+{
+    const u32* dataEnd = patchContext.GetDataEnd();
+
+    const u32* tableLiteral = resolvePcRelativeLoad(
+        &match[NESTED_IRQ_TABLE_LOAD_WORD], NESTED_IRQ_TABLE_LOAD_OPCODE, dataEnd);
+    const u32* returnLiteral = resolvePcRelativeLoad(
+        &match[NESTED_IRQ_RETURN_LOAD_WORD], NESTED_IRQ_RETURN_LOAD_OPCODE, dataEnd);
+    if (!tableLiteral || !returnLiteral)
+    {
+        LOG_WARNING("In-game reset: irq dispatcher literal loads mismatch\n");
+        return false;
+    }
+
+    // The literal return address is where the instruction after the dispatcher's call ends
+    // up, which ties the match to the real dispatcher at its final location.
+    u32 finalAddress = patchContext.GetAutoloadAdjuster()->AdjustInitialToFinal((u32)match);
+    if (*returnLiteral != finalAddress + NESTED_IRQ_RETURN_OFFSET)
+    {
+        LOG_WARNING("In-game reset: irq dispatcher return address mismatch\n");
+        return false;
+    }
+
+    // The table is an array of 32-bit handler addresses, so its address must be word aligned.
+    u32 irqTable = *tableLiteral;
+    if (irqTable == 0 || (irqTable & 3) != 0)
+    {
+        LOG_WARNING("In-game reset: invalid irq table address 0x%X\n", irqTable);
+        return false;
+    }
+
+    result.irqTable = irqTable;
+    result.continueAddress = finalAddress + NESTED_CONTINUE_OFFSET;
+    return true;
+}
+
+static u32 getNestedPatchCodeSize()
+{
+    return InGameResetNestedDispatchPatchCode::GetSize();
+}
+
+static const InGameResetDispatchPatchCode* createNestedPatchCode(PatchContext& patchContext,
+    const IrqDispatcherMatch& match, const InGameResetKeyCheckPatchCode* keyCheckPatchCode)
+{
+    return patchContext.GetPatchCodeCollection().AddUniquePatchCode<InGameResetNestedDispatchPatchCode>
+    (
+        patchContext.GetPatchHeap(),
+        match.irqTable,
+        match.continueAddress,
+        keyCheckPatchCode
+    );
+}
+
 // Dispatcher versions in the order they are tried. The stock one comes first, because it is
 // what nearly every game has.
-static const std::array<const irq_dispatcher_variant_t, 2> sIrqDispatcherVariants
+static const std::array<const irq_dispatcher_variant_t, 3> sIrqDispatcherVariants
 {
     irq_dispatcher_variant_t
     {
@@ -237,6 +339,18 @@ static const std::array<const irq_dispatcher_variant_t, 2> sIrqDispatcherVariant
         .validate = validateBlx,
         .getPatchCodeSize = getBlxPatchCodeSize,
         .createPatchCode = createBlxPatchCode
+    },
+    irq_dispatcher_variant_t
+    {
+        .name = "nested",
+        .pattern = sNestedPattern,
+        .patternWordCount = sizeof(sNestedPattern) / sizeof(u32),
+        .wildcardMask = (1u << NESTED_IRQ_TABLE_LOAD_WORD) | (1u << NESTED_IRQ_RETURN_LOAD_WORD),
+        .anchorWordIndex = 0,
+        .hookWordIndex = NESTED_HOOK_WORD,
+        .validate = validateNested,
+        .getPatchCodeSize = getNestedPatchCodeSize,
+        .createPatchCode = createNestedPatchCode
     }
 };
 

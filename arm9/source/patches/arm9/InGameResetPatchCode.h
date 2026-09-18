@@ -5,11 +5,14 @@
 DEFINE_SECTION_SYMBOLS(patch_ingamereset_keycheck);
 DEFINE_SECTION_SYMBOLS(patch_ingamereset_dispatch_sdk);
 DEFINE_SECTION_SYMBOLS(patch_ingamereset_dispatch_blx);
+DEFINE_SECTION_SYMBOLS(patch_ingamereset_dispatch_nested);
 DEFINE_SECTION_SYMBOLS(patch_ingamereset_reset);
 
 extern "C" void patch_ingamereset_keyCheck(void);
 extern "C" void patch_ingamereset_sdkDispatch(void);
 extern "C" void patch_ingamereset_blxDispatch(void);
+extern "C" void patch_ingamereset_nestedDispatch(void);
+extern "C" void patch_ingamereset_nestedResume(void);
 extern "C" void patch_ingamereset_resetEntry(void);
 
 extern u32 patch_ingamereset_resetAddress;
@@ -18,6 +21,10 @@ extern u32 patch_ingamereset_sdkIrqReturn;
 extern u32 patch_ingamereset_sdkKeyCheck;
 extern u32 patch_ingamereset_blxIrqReturn;
 extern u32 patch_ingamereset_blxKeyCheck;
+extern u32 patch_ingamereset_nestedIrqTable;
+extern u32 patch_ingamereset_nestedContinue;
+extern u32 patch_ingamereset_nestedResumeAddress;
+extern u32 patch_ingamereset_nestedKeyCheck;
 extern u32 patch_ingamereset_slot1LockAddress;
 extern u32 patch_ingamereset_resetParamAddress;
 extern u32 patch_ingamereset_resetParam;
@@ -133,5 +140,30 @@ public:
     static u32 GetSize()
     {
         return SECTION_SIZE(patch_ingamereset_dispatch_blx);
+    }
+};
+
+/// @brief Dispatch part for the stock dispatcher wrapped so that interrupts can nest. It hooks
+///        before the game switches to system mode with irqs enabled, so normal dispatch carries
+///        on in the game's own code rather than at the handler.
+class InGameResetNestedDispatchPatchCode : public InGameResetDispatchPatchCode
+{
+public:
+    InGameResetNestedDispatchPatchCode(PatchHeap& patchHeap, u32 irqTable, u32 continueAddress,
+        const InGameResetKeyCheckPatchCode* keyCheckPatchCode)
+        : InGameResetDispatchPatchCode(SECTION_START(patch_ingamereset_dispatch_nested),
+            SECTION_SIZE(patch_ingamereset_dispatch_nested), patchHeap,
+            (void*)patch_ingamereset_nestedDispatch)
+    {
+        patch_ingamereset_nestedIrqTable = irqTable;
+        patch_ingamereset_nestedContinue = continueAddress;
+        patch_ingamereset_nestedResumeAddress = (u32)GetAddressAtTarget((void*)patch_ingamereset_nestedResume);
+        patch_ingamereset_nestedKeyCheck = (u32)keyCheckPatchCode->GetKeyCheckFunction();
+    }
+
+    /// @brief Returns the patch heap space this part needs, so callers can check it fits.
+    static u32 GetSize()
+    {
+        return SECTION_SIZE(patch_ingamereset_dispatch_nested);
     }
 };

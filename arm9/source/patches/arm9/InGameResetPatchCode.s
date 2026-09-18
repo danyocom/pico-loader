@@ -219,6 +219,86 @@ patch_ingamereset_blxKeyCheck:
 
 .pool
 
+.section "patch_ingamereset_dispatch_nested", "ax"
+
+// Dispatch part for the stock dispatcher wrapped so that interrupts can nest, found in
+// Black Sigil: Blade of the Exiled. Up to the table lookup it is the stock dispatcher, but
+// it saves SPSR and sets IME on entry, and around the handler call it switches to system
+// mode with irqs enabled so that a handler can be interrupted in turn:
+//
+//     ... stock clz loop, acknowledge, rsbs r0, r0, #31 ...
+//     ldr r1, =irqTable
+//     ldr r0, [r1, r0, lsl #2]
+//     mrs r3, CPSR ; bic r3, r3, #0xDF ; orr r3, r3, #0x1F ; msr CPSR_fc, r3
+//     push {lr} ; ldr lr, =irqReturn ; bx r0
+//
+// The jump replaces the two loads, which is before the mode switch. Hooking at the bx would
+// run the reset in system mode with interrupts on, where a nested handler waiting on the
+// slot 1 lock could deadlock. So this is entered in irq mode with irqs still masked, with
+// the flags of "rsbs r0, r0, #31" set, which say whether this is interrupt 0, and r0 holding
+// the interrupt index.
+//
+// Normal dispatch therefore carries on in the game's own code at the mode switch rather than
+// at the handler, and that code expects the handler in r0.
+
+.thumb
+.global patch_ingamereset_nestedDispatch
+.type patch_ingamereset_nestedDispatch, %function
+patch_ingamereset_nestedDispatch:
+    // The flags have to be tested before anything else, because the shift below sets them.
+    bne nestedNotVblank
+
+    ldr r2, patch_ingamereset_nestedIrqTable
+    lsls r3, r0, #2 // table entries are 4 bytes each
+    ldr r2, [r2, r3] // r2 = handler
+    // The reset overwrites r0 while it waits for the slot 1 lock, so the handler cannot be
+    // left there. Nothing can interrupt this code, so a plain word is enough to keep it.
+    adr r3, nestedHandler
+    str r2, [r3]
+    ldr r2, patch_ingamereset_nestedResumeAddress
+    ldr r3, patch_ingamereset_nestedKeyCheck
+    bx r3
+
+nestedNotVblank:
+    ldr r2, patch_ingamereset_nestedIrqTable
+    lsls r3, r0, #2
+    ldr r0, [r2, r3] // the game's own code carries on with the handler in r0
+    ldr r3, patch_ingamereset_nestedContinue
+    bx r3
+
+// Reached as the continuation when the reset could not be performed, which restores the
+// handler and carries on where the game left off.
+.global patch_ingamereset_nestedResume
+.type patch_ingamereset_nestedResume, %function
+patch_ingamereset_nestedResume:
+    ldr r0, nestedHandler
+    ldr r3, patch_ingamereset_nestedContinue
+    bx r3
+
+.balign 4
+
+// The handler for the interrupt being serviced, kept across the key check and the reset.
+nestedHandler:
+    .word 0
+
+.global patch_ingamereset_nestedIrqTable
+patch_ingamereset_nestedIrqTable:
+    .word 0
+
+.global patch_ingamereset_nestedContinue
+patch_ingamereset_nestedContinue:
+    .word 0
+
+.global patch_ingamereset_nestedResumeAddress
+patch_ingamereset_nestedResumeAddress:
+    .word 0
+
+.global patch_ingamereset_nestedKeyCheck
+patch_ingamereset_nestedKeyCheck:
+    .word 0
+
+.pool
+
 .section "patch_ingamereset_reset", "ax"
 
 // Entered from the key check with r2 = the address that carries on with normal dispatch.
