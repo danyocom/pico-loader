@@ -38,6 +38,15 @@ public:
     /// @return A pointer to the first location where the pattern was found, or \c nullptr if the pattern was not found.
     u32* FindPattern32Twl(const u32* pattern, u32 byteLength) const;
 
+    /// @brief Returns the start of the ntr region of this context, for patches that check
+    ///        a pattern by hand instead of searching for it.
+    /// @return The start of the ntr region of this context.
+    constexpr const u32* GetDataStart() const { return (const u32*)_data; }
+
+    /// @brief Returns the end of the ntr region of this context.
+    /// @return The address one past the last word of the ntr region of this context.
+    constexpr const u32* GetDataEnd() const { return (const u32*)((const u8*)_data + _dataSize); }
+
     /// @brief Returns the ntr autoload adjuster of this context.
     /// @return The ntr autoload adjuster of this context.
     constexpr const IAutoloadAdjuster* GetAutoloadAdjuster() const { return _autoloadAdjuster.get(); }

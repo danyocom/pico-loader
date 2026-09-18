@@ -14,39 +14,44 @@
 .equ IN_GAME_RESET_LOCK_ID, 0x7D
 
 // ARM9 patch space is usually made of the gaps between the secure area syscall thunks,
-// most of which are around 0x70 bytes. The code is therefore split in two small parts that
-// are placed independently: the dispatch that runs on every interrupt, and the reset.
-
-.section "patch_ingamereset", "ax"
-
-// Replaces the last four instructions of the SDK interrupt dispatcher (OS_IrqHandler):
+// most of which are around 0x70 bytes. The code is therefore split into small parts that
+// are placed independently.
 //
-//     ldr r1, =irqTable
-//     ldr r0, [r1, r0, lsl #2]
-//     ldr lr, =irqReturn
-//     bx  r0
+// Games do not all use the same arm9 interrupt dispatcher, so the part that replaces the
+// dispatch is chosen per game and only the chosen one is placed. Those dispatch parts
+// share the key check and the reset through one convention:
 //
-// It is entered with r0 holding the index of the interrupt being serviced and performs
-// the same dispatch, counting on the way the vblanks during which the reset keys are held.
-// r0-r3 and r12 are free to use, as they are for the handler being dispatched to.
+//   A dispatch part replaces the handler lookup of a game's interrupt dispatcher. It is
+//   entered in thumb state with the cpu in irq mode and irqs masked. It must leave in r2
+//   the address to branch to in order to carry on with normal dispatch, along with any
+//   other register that continuation needs, and then branch to the key check for a vblank
+//   interrupt, or enter the continuation directly for any other interrupt.
+//
+//   The key check is entered with r2 set that way. It either enters the continuation or
+//   enters the reset, which leaves r2 alone so that it can return to the continuation when
+//   the reset cannot be performed yet.
+//
+//   Entering a continuation is always "movs r0, r2; bx r0", so r2 must carry the thumb bit
+//   when the continuation is thumb code.
+//
+// Adding support for another dispatcher therefore means adding a dispatch part and nothing
+// else. r0-r3 and r12 are free to use in all of them, as they are for the handler being
+// dispatched to.
+
+.section "patch_ingamereset_keycheck", "ax"
+
+// Counts the vblanks during which the reset keys are held, and enters the reset once they
+// have been held long enough. Entered from a dispatch part on vblank, with r2 holding the
+// address that carries on with normal dispatch.
 
 .thumb
-.global patch_ingamereset_irqDispatch
-.type patch_ingamereset_irqDispatch, %function
-patch_ingamereset_irqDispatch:
-    // Same as the replaced code: look up the handler for irq r0 and set its return address.
-    ldr r1, patch_ingamereset_irqTable
-    lsls r2, r0, #2 // table entries are 4 bytes each
-    ldr r2, [r1, r2] // r2 = handler
-    ldr r1, patch_ingamereset_irqReturn
-    mov lr, r1
-    cmp r0, #0 // irq 0 is vblank, and only vblank advances the count
-    bne callHandler
-
+.global patch_ingamereset_keyCheck
+.type patch_ingamereset_keyCheck, %function
+patch_ingamereset_keyCheck:
     ldr r0, regKeyInput
     ldrh r0, [r0]
     // Thumb can only load an 8-bit constant, so the 10-bit key mask is built in two steps:
-    // 0x38 << 4 = 0x380, then + 0x2 = 0x382.
+    // 0x38 << 4 = 0x380, then + 0x3 = 0x383.
     movs r1, #(IN_GAME_RESET_KEY_MASK >> 4)
     lsls r1, r1, #4
     adds r1, #(IN_GAME_RESET_KEY_MASK & 0xF)
@@ -65,14 +70,11 @@ keysReleased:
     movs r0, #0
 storeHeldFrames:
     strh r0, [r3]
-
-callHandler:
-    // The handler is entered with its address in r0, as the replaced bx r0 did.
     movs r0, r2
     bx r0
 
 tryReset:
-    // r2 and lr are still set up for dispatching, in case the reset has to wait
+    // r2 is left as it is, so that the reset can return to it if it has to wait.
     ldr r3, patch_ingamereset_resetAddress
     bx r3
 
@@ -86,24 +88,65 @@ heldFrames:
 regKeyInput:
     .word 0x04000130
 
-.global patch_ingamereset_irqTable
-patch_ingamereset_irqTable:
-    .word 0
-
-.global patch_ingamereset_irqReturn
-patch_ingamereset_irqReturn:
-    .word 0
-
 .global patch_ingamereset_resetAddress
 patch_ingamereset_resetAddress:
     .word 0
 
 .pool
 
+.section "patch_ingamereset_dispatch_sdk", "ax"
+
+// Dispatch part for the stock SDK interrupt dispatcher (OS_IrqHandler), which is used by
+// almost every retail game from SDK 2 through SDK 5. It replaces the last four
+// instructions:
+//
+//     ldr r1, =irqTable
+//     ldr r0, [r1, r0, lsl #2]
+//     ldr lr, =irqReturn
+//     bx  r0
+//
+// and is entered with r0 holding the index of the interrupt being serviced.
+
+.thumb
+.global patch_ingamereset_sdkDispatch
+.type patch_ingamereset_sdkDispatch, %function
+patch_ingamereset_sdkDispatch:
+    // Same as the replaced code: look up the handler for irq r0 and set its return address.
+    ldr r1, patch_ingamereset_sdkIrqTable
+    lsls r2, r0, #2 // table entries are 4 bytes each
+    ldr r2, [r1, r2] // r2 = handler, which is where normal dispatch carries on
+    ldr r1, patch_ingamereset_sdkIrqReturn
+    mov lr, r1
+    cmp r0, #0 // irq 0 is vblank, and only vblank advances the count
+    bne sdkContinue
+    ldr r3, patch_ingamereset_sdkKeyCheck
+    bx r3
+
+sdkContinue:
+    // The handler is entered with its address in r0, as the replaced bx r0 did.
+    movs r0, r2
+    bx r0
+
+.balign 4
+
+.global patch_ingamereset_sdkIrqTable
+patch_ingamereset_sdkIrqTable:
+    .word 0
+
+.global patch_ingamereset_sdkIrqReturn
+patch_ingamereset_sdkIrqReturn:
+    .word 0
+
+.global patch_ingamereset_sdkKeyCheck
+patch_ingamereset_sdkKeyCheck:
+    .word 0
+
+.pool
+
 .section "patch_ingamereset_reset", "ax"
 
-// Entered from the dispatch with r2 = the vblank handler and lr = the dispatcher's return
-// address. Returns into the handler when the reset cannot be performed yet.
+// Entered from the key check with r2 = the address that carries on with normal dispatch.
+// Returns there when the reset cannot be performed yet.
 //
 // The cpu is in irq mode with interrupts disabled, and nothing from here on returns into
 // the game or enables interrupts before Pico Loader has started.

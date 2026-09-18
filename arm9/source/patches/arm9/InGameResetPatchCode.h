@@ -2,15 +2,18 @@
 #include "../PatchCode.h"
 #include "sections.h"
 
-DEFINE_SECTION_SYMBOLS(patch_ingamereset);
+DEFINE_SECTION_SYMBOLS(patch_ingamereset_keycheck);
+DEFINE_SECTION_SYMBOLS(patch_ingamereset_dispatch_sdk);
 DEFINE_SECTION_SYMBOLS(patch_ingamereset_reset);
 
-extern "C" void patch_ingamereset_irqDispatch(void);
+extern "C" void patch_ingamereset_keyCheck(void);
+extern "C" void patch_ingamereset_sdkDispatch(void);
 extern "C" void patch_ingamereset_resetEntry(void);
 
-extern u32 patch_ingamereset_irqTable;
-extern u32 patch_ingamereset_irqReturn;
 extern u32 patch_ingamereset_resetAddress;
+extern u32 patch_ingamereset_sdkIrqTable;
+extern u32 patch_ingamereset_sdkIrqReturn;
+extern u32 patch_ingamereset_sdkKeyCheck;
 extern u32 patch_ingamereset_slot1LockAddress;
 extern u32 patch_ingamereset_resetParamAddress;
 extern u32 patch_ingamereset_resetParam;
@@ -42,27 +45,66 @@ public:
     }
 };
 
-/// @brief The part of the in-game reset that replaces the dispatch of the SDK interrupt dispatcher.
-class InGameResetPatchCode : public PatchCode
+/// @brief The part of the in-game reset that counts the vblanks during which the reset keys
+///        are held. It is shared by every dispatch part.
+class InGameResetKeyCheckPatchCode : public PatchCode
 {
 public:
-    InGameResetPatchCode(PatchHeap& patchHeap, u32 irqTable, u32 irqReturn,
-        const InGameResetResetPatchCode* resetPatchCode)
-        : PatchCode(SECTION_START(patch_ingamereset), SECTION_SIZE(patch_ingamereset), patchHeap)
+    InGameResetKeyCheckPatchCode(PatchHeap& patchHeap, const InGameResetResetPatchCode* resetPatchCode)
+        : PatchCode(SECTION_START(patch_ingamereset_keycheck), SECTION_SIZE(patch_ingamereset_keycheck), patchHeap)
     {
-        patch_ingamereset_irqTable = irqTable;
-        patch_ingamereset_irqReturn = irqReturn;
         patch_ingamereset_resetAddress = (u32)resetPatchCode->GetResetFunction();
     }
 
     /// @brief Returns the patch heap space this part needs, so callers can check it fits.
     static u32 GetSize()
     {
-        return SECTION_SIZE(patch_ingamereset);
+        return SECTION_SIZE(patch_ingamereset_keycheck);
     }
 
-    const void* GetIrqDispatchFunction() const
+    const void* GetKeyCheckFunction() const
     {
-        return GetAddressAtTarget((void*)patch_ingamereset_irqDispatch);
+        return GetAddressAtTarget((void*)patch_ingamereset_keyCheck);
+    }
+};
+
+/// @brief Base class for the part of the in-game reset that replaces the dispatch of a game's
+///        arm9 interrupt dispatcher. There is one of these per dispatcher version, and only
+///        the one matching the game is placed in the patch heap.
+class InGameResetDispatchPatchCode : public PatchCode
+{
+public:
+    InGameResetDispatchPatchCode(const void* code, u32 size, PatchHeap& patchHeap, const void* entry)
+        : PatchCode(code, size, patchHeap), _entry(entry) { }
+
+    /// @brief Returns the address the game's dispatcher must jump to, with the thumb bit set.
+    const void* GetDispatchFunction() const
+    {
+        return GetAddressAtTarget(_entry);
+    }
+
+private:
+    const void* const _entry;
+};
+
+/// @brief Dispatch part for the stock SDK interrupt dispatcher.
+class InGameResetSdkDispatchPatchCode : public InGameResetDispatchPatchCode
+{
+public:
+    InGameResetSdkDispatchPatchCode(PatchHeap& patchHeap, u32 irqTable, u32 irqReturn,
+        const InGameResetKeyCheckPatchCode* keyCheckPatchCode)
+        : InGameResetDispatchPatchCode(SECTION_START(patch_ingamereset_dispatch_sdk),
+            SECTION_SIZE(patch_ingamereset_dispatch_sdk), patchHeap,
+            (void*)patch_ingamereset_sdkDispatch)
+    {
+        patch_ingamereset_sdkIrqTable = irqTable;
+        patch_ingamereset_sdkIrqReturn = irqReturn;
+        patch_ingamereset_sdkKeyCheck = (u32)keyCheckPatchCode->GetKeyCheckFunction();
+    }
+
+    /// @brief Returns the patch heap space this part needs, so callers can check it fits.
+    static u32 GetSize()
+    {
+        return SECTION_SIZE(patch_ingamereset_dispatch_sdk);
     }
 };
