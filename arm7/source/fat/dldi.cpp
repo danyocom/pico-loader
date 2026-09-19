@@ -133,9 +133,18 @@ void dldi_copyTo(void* target)
     memcpy(target, sDldiBuffer, sizeof(sDldiBuffer));
 }
 
-static bool isRangeInsideDriver(const dldi_header_t* driver, u32 start, u32 end)
+/// @brief Checks that a range lies inside the driver's allocated image.
+/// @note The range is bounded by the image size rather than by driverEndAddress.
+///       driverEndAddress is the end of the driver's initialised data, and a driver's bss
+///       legitimately begins there and runs past it, still inside the allocated image.
+/// @param driver The driver header.
+/// @param imageSize The number of bytes available for the driver image.
+/// @param start The first address of the range.
+/// @param end One past the last address of the range.
+static bool isRangeInsideImage(const dldi_header_t* driver, u32 imageSize, u32 start, u32 end)
 {
-    return start <= end && driver->driverStartAddress <= start && end <= driver->driverEndAddress;
+    return start <= end && driver->driverStartAddress <= start &&
+        end - driver->driverStartAddress <= imageSize;
 }
 
 static bool isFunctionInsideDriver(const dldi_header_t* driver, u32 function)
@@ -176,18 +185,18 @@ static bool isCacheableDriver(const dldi_header_t* driver, u32 imageSize)
     if (!(driver->fixFlags & DLDI_FIX_ALL))
     {
         if ((driver->fixFlags & DLDI_FIX_GLUE) &&
-            !isRangeInsideDriver(driver, driver->glueStartAddress, driver->glueEndAddress))
+            !isRangeInsideImage(driver, imageSize, driver->glueStartAddress, driver->glueEndAddress))
         {
             return false;
         }
         if ((driver->fixFlags & DLDI_FIX_GOT) &&
-            !isRangeInsideDriver(driver, driver->gotStartAddress, driver->gotEndAddress))
+            !isRangeInsideImage(driver, imageSize, driver->gotStartAddress, driver->gotEndAddress))
         {
             return false;
         }
     }
     if ((driver->fixFlags & DLDI_FIX_BSS) &&
-        !isRangeInsideDriver(driver, driver->bssStartAddress, driver->bssEndAddress))
+        !isRangeInsideImage(driver, imageSize, driver->bssStartAddress, driver->bssEndAddress))
     {
         return false;
     }
