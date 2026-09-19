@@ -6,6 +6,7 @@ DEFINE_SECTION_SYMBOLS(patch_ingamereset_keycheck);
 DEFINE_SECTION_SYMBOLS(patch_ingamereset_dispatch_sdk);
 DEFINE_SECTION_SYMBOLS(patch_ingamereset_dispatch_blx);
 DEFINE_SECTION_SYMBOLS(patch_ingamereset_dispatch_nested);
+DEFINE_SECTION_SYMBOLS(patch_ingamereset_dispatch_condreturn);
 DEFINE_SECTION_SYMBOLS(patch_ingamereset_reset);
 
 extern "C" void patch_ingamereset_keyCheck(void);
@@ -13,6 +14,8 @@ extern "C" void patch_ingamereset_sdkDispatch(void);
 extern "C" void patch_ingamereset_blxDispatch(void);
 extern "C" void patch_ingamereset_nestedDispatch(void);
 extern "C" void patch_ingamereset_nestedResume(void);
+extern "C" void patch_ingamereset_condReturnDispatch(void);
+extern "C" void patch_ingamereset_condReturnResume(void);
 extern "C" void patch_ingamereset_resetEntry(void);
 
 extern u32 patch_ingamereset_resetAddress;
@@ -25,6 +28,9 @@ extern u32 patch_ingamereset_nestedIrqTable;
 extern u32 patch_ingamereset_nestedContinue;
 extern u32 patch_ingamereset_nestedResumeAddress;
 extern u32 patch_ingamereset_nestedKeyCheck;
+extern u32 patch_ingamereset_condReturnIrqReturn;
+extern u32 patch_ingamereset_condReturnResumeAddress;
+extern u32 patch_ingamereset_condReturnKeyCheck;
 extern u32 patch_ingamereset_slot1LockAddress;
 extern u32 patch_ingamereset_resetParamAddress;
 extern u32 patch_ingamereset_resetParam;

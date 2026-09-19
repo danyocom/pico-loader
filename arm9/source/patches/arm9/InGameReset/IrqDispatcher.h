@@ -19,7 +19,11 @@ enum class IrqDispatcherVariant
 
     /// @brief The stock dispatcher wrapped so that interrupts can nest.
     ///        Found in Black Sigil: Blade of the Exiled.
-    Nested
+    Nested,
+
+    /// @brief Sets the handler's return address only for some interrupts.
+    ///        Found in Diddy Kong Racing DS.
+    CondReturn
 };
 
 /// @brief Where and how the in-game reset hooks into a game's arm9 interrupt dispatcher,

@@ -219,6 +219,82 @@ patch_ingamereset_blxKeyCheck:
 
 .pool
 
+.section "patch_ingamereset_dispatch_condreturn", "ax"
+
+// Dispatch part for a dispatcher that sets the handler's return address only for some
+// interrupts, found in Diddy Kong Racing DS. It is the stock dispatcher up to the
+// acknowledge, then:
+//
+//     ldr r1, =irqTable
+//     rsbs r0, r0, #31
+//     ldr r2, [r1, r0, lsl #2]       @ handler in r2, not r0
+//     cmp r0, #10
+//     stmfdne sp!, {lr}              @ interrupt 10 pushes nothing
+//     ldrne lr, =irqReturn           @ and is given no return address
+//     bx  r2
+//
+// The jump replaces the last two instructions, so the push has already happened and the
+// flags of "cmp r0, #10" still say whether this interrupt is the one that skips it. Setting
+// lr for that interrupt would send its handler to a return address with nothing pushed to
+// match, so it is left holding the return into the BIOS, as the replaced code does.
+//
+// This dispatcher also enters handlers with the interrupt index in r0 rather than the
+// handler address, so unlike the other parts this one leaves r0 alone.
+
+.thumb
+.global patch_ingamereset_condReturnDispatch
+.type patch_ingamereset_condReturnDispatch, %function
+patch_ingamereset_condReturnDispatch:
+    beq condReturnCall
+    ldr r3, patch_ingamereset_condReturnIrqReturn
+    mov lr, r3
+
+condReturnCall:
+    cmp r0, #0 // irq 0 is vblank, and only vblank advances the count
+    bne condReturnContinue
+
+    // The key check and the reset overwrite r0 and take r2 as the address to carry on at,
+    // so the handler is kept here and restored by the resume stub below. Nothing can
+    // interrupt this code, so a plain word is enough.
+    adr r3, condReturnHandler
+    str r2, [r3]
+    ldr r2, patch_ingamereset_condReturnResumeAddress
+    ldr r3, patch_ingamereset_condReturnKeyCheck
+    bx r3
+
+condReturnContinue:
+    // r0 still holds the interrupt index, which is what this dispatcher's handlers are
+    // entered with.
+    bx r2
+
+// Reached as the continuation when the reset could not be performed.
+.global patch_ingamereset_condReturnResume
+.type patch_ingamereset_condReturnResume, %function
+patch_ingamereset_condReturnResume:
+    ldr r3, condReturnHandler
+    movs r0, #0 // only interrupt 0 reaches the key check
+    bx r3
+
+.balign 4
+
+// The handler for the interrupt being serviced, kept across the key check and the reset.
+condReturnHandler:
+    .word 0
+
+.global patch_ingamereset_condReturnIrqReturn
+patch_ingamereset_condReturnIrqReturn:
+    .word 0
+
+.global patch_ingamereset_condReturnResumeAddress
+patch_ingamereset_condReturnResumeAddress:
+    .word 0
+
+.global patch_ingamereset_condReturnKeyCheck
+patch_ingamereset_condReturnKeyCheck:
+    .word 0
+
+.pool
+
 .section "patch_ingamereset_dispatch_nested", "ax"
 
 // Dispatch part for the stock dispatcher wrapped so that interrupts can nest, found in

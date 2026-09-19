@@ -9,6 +9,7 @@
 #include "IrqDispatcherSdk.h"
 #include "IrqDispatcherBlx.h"
 #include "IrqDispatcherNested.h"
+#include "IrqDispatcherCondReturn.h"
 #include "InGameResetPatch.h"
 
 bool InGameResetPatch::FindPatchTarget(PatchContext& patchContext)
@@ -27,6 +28,10 @@ bool InGameResetPatch::FindPatchTarget(PatchContext& patchContext)
     {
         _irqDispatcherVariant = IrqDispatcherVariant::Nested;
     }
+    else if (FindCondReturnIrqDispatcher(patchContext, _irqDispatcherMatch))
+    {
+        _irqDispatcherVariant = IrqDispatcherVariant::CondReturn;
+    }
     else
     {
         LOG_DEBUG("In-game reset: no known irq dispatcher found\n");
@@ -41,6 +46,7 @@ u32 InGameResetPatch::GetDispatchPatchCodeSize() const
         case IrqDispatcherVariant::Sdk:    return InGameResetSdkDispatchPatchCode::GetSize();
         case IrqDispatcherVariant::Blx:    return InGameResetBlxDispatchPatchCode::GetSize();
         case IrqDispatcherVariant::Nested: return InGameResetNestedDispatchPatchCode::GetSize();
+        case IrqDispatcherVariant::CondReturn: return InGameResetCondReturnDispatchPatchCode::GetSize();
         default:                           return 0;
     }
 }
@@ -60,6 +66,9 @@ const InGameResetDispatchPatchCode* InGameResetPatch::CreateDispatchPatchCode(
                 patchHeap, _irqDispatcherMatch, keyCheckPatchCode);
         case IrqDispatcherVariant::Nested:
             return patchCodeCollection.AddUniquePatchCode<InGameResetNestedDispatchPatchCode>(
+                patchHeap, _irqDispatcherMatch, keyCheckPatchCode);
+        case IrqDispatcherVariant::CondReturn:
+            return patchCodeCollection.AddUniquePatchCode<InGameResetCondReturnDispatchPatchCode>(
                 patchHeap, _irqDispatcherMatch, keyCheckPatchCode);
         default:
             return nullptr;
